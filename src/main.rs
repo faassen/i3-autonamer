@@ -1,9 +1,10 @@
 use anyhow::{Error, Result};
+use std;
 use tokio::sync::mpsc;
 use tokio_i3ipc::{
     event::{Event, Subscribe, WindowChange, WorkspaceChange},
     msg::Msg,
-    reply::{Node, NodeLayout, Rect},
+    reply::{Node, NodeLayout, NodeType, Rect},
     I3,
 };
 use tokio_stream::StreamExt;
@@ -28,8 +29,41 @@ use tokio_stream::StreamExt;
 //         })
 //     }
 // }
-async fn tree_fun(i3: &mut I3) {
-    log::debug!("{:#?}", i3.get_tree().await);
+
+fn get_workspace_name(node: Node) -> String {
+    "Foo".to_string()
+}
+
+fn get_nodes_of_type<'a>(node: &'a Node, node_type: NodeType) -> impl Iterator<Item = &'a Node> {
+    node.nodes.iter().filter(move |n| n.node_type == node_type)
+}
+
+fn get_workspace_nodes(node: &Node) -> impl Iterator<Item = &Node> {
+    get_nodes_of_type(node, NodeType::Workspace)
+}
+
+fn get_content_nodes(node: &Node) -> impl Iterator<Item = &Node> {
+    get_nodes_of_type(node, NodeType::Con)
+}
+
+fn get_output_nodes(node: &Node) -> impl Iterator<Item = &Node> {
+    get_nodes_of_type(node, NodeType::Output)
+}
+
+// fn get_workspace_nodes(node: Node) -> &[Node] {
+//     assert!(node.node_type == NodeType::Root);
+// }
+
+async fn tree_fun(i3: &mut I3) -> Result<()> {
+    let root = i3.get_tree().await?;
+    let workspace_nodes = get_output_nodes(&root)
+        .map(|n| get_content_nodes(n))
+        .flatten()
+        .map(|n| get_workspace_nodes(n))
+        .flatten();
+    //  log::debug!("root: {:#?}", root);
+    log::debug!("{:#?}", workspace_nodes.collect::<Vec<&Node>>());
+    return Ok(());
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -59,7 +93,7 @@ async fn main() -> Result<()> {
                         | WindowChange::Floating => {
                             // new, close, move, floating (?)
                             log::debug!("Window event");
-                            tree_fun(i3).await;
+                            tree_fun(i3).await?;
                         }
                         _ => {}
                     }
