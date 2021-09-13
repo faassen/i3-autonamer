@@ -1,5 +1,7 @@
 use anyhow::{Error, Result};
 use std;
+use std::collections::HashMap;
+use std::iter;
 use tokio::sync::mpsc;
 use tokio_i3ipc::{
     event::{Event, Subscribe, WindowChange, WorkspaceChange},
@@ -30,39 +32,56 @@ use tokio_stream::StreamExt;
 //     }
 // }
 
-fn get_workspace_name(node: Node) -> String {
-    "Foo".to_string()
+type Lookup = HashMap<String, String>;
+
+fn get_leaf_content_nodes<'a>(node: &'a Node) -> Vec<&Node> {
+    get_nodes_of_type(node, NodeType::Con)
+        .flat_map(|n| {
+            if n.nodes.len() == 0 {
+                vec![n]
+            } else {
+                get_leaf_content_nodes(n)
+            }
+        })
+        .collect()
+}
+
+fn get_workspace_name(workspace_node: &Node, lookup: &Lookup) -> String {
+    let names = get_leaf_content_nodes(workspace_node)
+        .iter()
+        .filter_map(|n| {
+            let class_name = (n.window_properties).as_ref()?.class.as_ref()?;
+            lookup.get(class_name)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    names.join(" ")
 }
 
 fn get_nodes_of_type<'a>(node: &'a Node, node_type: NodeType) -> impl Iterator<Item = &'a Node> {
     node.nodes.iter().filter(move |n| n.node_type == node_type)
 }
 
-fn get_workspace_nodes(node: &Node) -> impl Iterator<Item = &Node> {
-    get_nodes_of_type(node, NodeType::Workspace)
+fn get_workspace_nodes(root: &Node) -> impl Iterator<Item = &Node> {
+    assert!(root.node_type == NodeType::Root);
+    get_nodes_of_type(&root, NodeType::Output)
+        .map(|n| get_nodes_of_type(n, NodeType::Con))
+        .flatten()
+        .map(|n| get_nodes_of_type(n, NodeType::Workspace))
+        .flatten()
 }
-
-fn get_content_nodes(node: &Node) -> impl Iterator<Item = &Node> {
-    get_nodes_of_type(node, NodeType::Con)
-}
-
-fn get_output_nodes(node: &Node) -> impl Iterator<Item = &Node> {
-    get_nodes_of_type(node, NodeType::Output)
-}
-
-// fn get_workspace_nodes(node: Node) -> &[Node] {
-//     assert!(node.node_type == NodeType::Root);
-// }
 
 async fn tree_fun(i3: &mut I3) -> Result<()> {
+    let mut lookup: Lookup = HashMap::new();
+    lookup.insert("Alacritty".to_string(), 'A'.to_string());
+    lookup.insert("Joplin".to_string(), 'J'.to_string());
     let root = i3.get_tree().await?;
-    let workspace_nodes = get_output_nodes(&root)
-        .map(|n| get_content_nodes(n))
-        .flatten()
-        .map(|n| get_workspace_nodes(n))
-        .flatten();
-    //  log::debug!("root: {:#?}", root);
-    log::debug!("{:#?}", workspace_nodes.collect::<Vec<&Node>>());
+    let workspace_nodes = get_workspace_nodes(&root);
+    // log::debug!("root: {:#?}", root);
+    workspace_nodes.for_each(|workspace_node| {
+        log::debug!("{:#?}", get_workspace_name(workspace_node, &lookup));
+    });
+
     return Ok(());
 }
 
