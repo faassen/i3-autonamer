@@ -1,36 +1,14 @@
 use anyhow::{Error, Result};
 use std;
 use std::collections::{HashMap, HashSet};
-use std::iter;
 use tokio::sync::mpsc;
 use tokio_i3ipc::{
     event::{Event, Subscribe, WindowChange, WorkspaceChange},
     msg::Msg,
-    reply::{Node, NodeLayout, NodeType, Rect},
+    reply::{Node, NodeType},
     I3,
 };
 use tokio_stream::StreamExt;
-
-// #[rustfmt::skip]
-// fn split_rect(r: Rect) -> &'static str {
-//     if r.width > r.height { "split h" }
-//     else { "split v" }
-// }
-
-// walk the tree and determine if `window_id` has tabbed parent
-// fn has_tabbed_parent(node: &Node, window_id: usize, tabbed: bool) -> bool {
-//     if node.id == window_id {
-//         tabbed
-//     } else {
-//         node.nodes.iter().any(|child| {
-//             has_tabbed_parent(
-//                 child,
-//                 window_id,
-//                 matches!(node.layout, NodeLayout::Tabbed | NodeLayout::Stacked),
-//             )
-//         })
-//     }
-// }
 
 type Lookup = HashMap<String, String>;
 
