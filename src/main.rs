@@ -81,11 +81,11 @@ async fn get_workspace_rename_commands(i3: &mut I3) -> Result<Vec<String>> {
         .collect())
 }
 
-async fn update_workspace_names(i3: &mut I3, send: &mpsc::Sender<String>) -> Result<()> {
+async fn update_workspace_names(i3: &mut I3, tx: &mpsc::Sender<String>) -> Result<()> {
     let commands = get_workspace_rename_commands(i3).await?;
     for command in commands {
         log::debug!("Command: {}", command);
-        send.send(command).await?;
+        tx.send(command).await?;
     }
     return Ok(());
 }
@@ -93,7 +93,7 @@ async fn update_workspace_names(i3: &mut I3, send: &mpsc::Sender<String>) -> Res
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     flexi_logger::Logger::try_with_env()?.start()?;
-    let (send, mut recv) = mpsc::channel(10);
+    let (tx, mut rx) = mpsc::channel(10);
 
     let s_handle = tokio::spawn(async move {
         let mut event_listener = {
@@ -115,7 +115,7 @@ async fn main() -> Result<()> {
                         | WindowChange::Floating => {
                             log::debug!("WindowChange");
                             // new, close, move, floating (?)
-                            update_workspace_names(i3, &send).await?;
+                            update_workspace_names(i3, &tx).await?;
                         }
                         _ => {}
                     }
@@ -130,7 +130,7 @@ async fn main() -> Result<()> {
                     match workspace_data.change {
                         WorkspaceChange::Init | WorkspaceChange::Empty | WorkspaceChange::Move => {
                             log::debug!("WorkspaceChange");
-                            update_workspace_names(i3, &send).await?;
+                            update_workspace_names(i3, &tx).await?;
                         }
                         _ => {}
                     }
@@ -144,7 +144,7 @@ async fn main() -> Result<()> {
 
     let r_handle = tokio::spawn(async move {
         let mut i3 = I3::connect().await?;
-        while let Some(cmd) = recv.recv().await {
+        while let Some(cmd) = rx.recv().await {
             i3.send_msg_body(Msg::RunCommand, cmd).await?;
         }
         log::debug!("Receiver loop ended");
