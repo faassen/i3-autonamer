@@ -9,3 +9,9 @@ according to rules you specify.
 
 I've used Rust, Tokio, and tokio-i3ipc. The chosen tools are total overkill for
 the job, but it's been a fun exercise.
+
+## CREDITS
+
+I took the basic Rust structure from the
+[i3-auto-layout](https://github.com/chmln/i3-auto-layout) project, though I've
+changed it a lot since then.
