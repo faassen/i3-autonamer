@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
 use std;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::iter;
 use tokio::sync::mpsc;
 use tokio_i3ipc::{
@@ -51,11 +51,12 @@ fn get_workspace_name(workspace_node: &Node, lookup: &Lookup) -> String {
         .iter()
         .filter_map(|n| {
             let class_name = (n.window_properties).as_ref()?.class.as_ref()?;
+            log::debug!("class__name: {}", class_name);
             lookup.get(class_name)
         })
         .cloned()
-        .collect::<Vec<_>>();
-    names.join(" ")
+        .collect::<HashSet<_>>();
+    names.into_iter().collect::<Vec<_>>().join(" ")
 }
 
 fn get_nodes_of_type<'a>(node: &'a Node, node_type: NodeType) -> impl Iterator<Item = &'a Node> {
@@ -71,26 +72,50 @@ fn get_workspace_nodes(root: &Node) -> impl Iterator<Item = &Node> {
         .flatten()
 }
 
-async fn tree_fun(i3: &mut I3) -> Result<()> {
+async fn get_workspace_rename_commands(i3: &mut I3) -> Result<Vec<String>> {
     let mut lookup: Lookup = HashMap::new();
     lookup.insert("Alacritty".to_string(), 'A'.to_string());
     lookup.insert("Joplin".to_string(), 'J'.to_string());
+    lookup.insert("Firefox".to_string(), 'F'.to_string());
+    lookup.insert("Code".to_string(), 'C'.to_string());
     let root = i3.get_tree().await?;
     let workspace_nodes = get_workspace_nodes(&root);
     // log::debug!("root: {:#?}", root);
-    workspace_nodes.for_each(|workspace_node| {
-        log::debug!("{:#?}", get_workspace_name(workspace_node, &lookup));
-    });
+    Ok(workspace_nodes
+        .filter_map(|workspace_node| {
+            let num = workspace_node.num?;
+            if num < 1 {
+                return None;
+            }
+            let name = get_workspace_name(workspace_node, &lookup);
+            let full_name = if name.len() > 0 {
+                format!("{}: {}", num, name)
+            } else {
+                format!("{}", num)
+            };
+            log::debug!("Workspace num {} to {}", num, full_name);
+            Some(format!(
+                "rename workspace \"{}\" to \"{}\"",
+                workspace_node.name.clone().unwrap(),
+                full_name
+            ))
+        })
+        .collect())
+}
 
+async fn update_workspace_names(i3: &mut I3, send: &mpsc::Sender<String>) -> Result<()> {
+    let commands = get_workspace_rename_commands(i3).await?;
+    for command in commands {
+        log::debug!("Command: {}", command);
+        send.send(command).await?;
+    }
     return Ok(());
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     flexi_logger::Logger::try_with_env()?.start()?;
-    let mut i3 = I3::connect().await?;
-    log::debug!("Connected!");
-    let (send, mut recv) = mpsc::channel::<&'static str>(10);
+    let (send, mut recv) = mpsc::channel(10);
 
     let s_handle = tokio::spawn(async move {
         let mut event_listener = {
@@ -110,9 +135,9 @@ async fn main() -> Result<()> {
                         | WindowChange::Close
                         | WindowChange::Move
                         | WindowChange::Floating => {
+                            log::debug!("WindowChange");
                             // new, close, move, floating (?)
-                            log::debug!("Window event");
-                            tree_fun(i3).await?;
+                            update_workspace_names(i3, &send).await?;
                         }
                         _ => {}
                     }
@@ -126,7 +151,8 @@ async fn main() -> Result<()> {
                     // move
                     match workspace_data.change {
                         WorkspaceChange::Init | WorkspaceChange::Empty | WorkspaceChange::Move => {
-                            log::debug!("Workspace event");
+                            log::debug!("WorkspaceChange");
+                            update_workspace_names(i3, &send).await?;
                         }
                         _ => {}
                     }
@@ -134,14 +160,6 @@ async fn main() -> Result<()> {
                 _ => {}
             }
         }
-
-        // while let Some(Ok(Event::Window(window_data))) = event_listener.next().await {
-
-        //     // send.send("move").await?;
-        //     //         send.send(split_rect(window_data.container.window_rect))
-        //     //             .await?;
-        //     // }
-        // }
         log::debug!("Sender loop ended");
         Ok::<_, Error>(())
     });
