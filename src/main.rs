@@ -13,7 +13,7 @@ use tokio_stream::StreamExt;
 
 type Lookup = HashMap<String, String>;
 
-fn get_leaf_content_nodes<'a>(node: &'a Node) -> Vec<&Node> {
+fn get_leaf_content_nodes(node: &Node) -> Vec<&Node> {
     get_nodes_of_type(node, NodeType::Con)
         .flat_map(|n| {
             if n.nodes.len() == 0 {
@@ -38,7 +38,7 @@ fn get_workspace_name(workspace_node: &Node, lookup: &Lookup) -> String {
     names.into_iter().collect::<Vec<_>>().join(" ")
 }
 
-fn get_nodes_of_type<'a>(node: &'a Node, node_type: NodeType) -> impl Iterator<Item = &'a Node> {
+fn get_nodes_of_type(node: &Node, node_type: NodeType) -> impl Iterator<Item = &Node> {
     node.nodes.iter().filter(move |n| n.node_type == node_type)
 }
 
