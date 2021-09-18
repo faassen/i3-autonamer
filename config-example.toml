@@ -3,3 +3,19 @@ Alacritty = ""
 Joplin = ""
 Firefox = ""
 Code = ""
+
+# TODO:
+# special entries which don't show up if there's anything else available
+# a standard sorting order for icons, with priority in config file
+# match by title, not just window class
+# on-off button
+#
+
+# [[window]]
+# wm_class = "Alacritty"
+# secondary = true
+# sort = 10
+# icon = ""
+
+# [[window]]
+
