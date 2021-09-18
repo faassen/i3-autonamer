@@ -5,7 +5,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_i3ipc::{
     event::{Event, Subscribe, WindowChange, WorkspaceChange},
-    msg::Msg,
+    reply,
     reply::{Node, NodeType},
     I3,
 };
@@ -87,7 +87,7 @@ type Responder<T> = oneshot::Sender<anyhow::Result<T, std::io::Error>>;
 enum Command {
     RunCommand {
         payload: String,
-        resp: Responder<()>,
+        resp: Responder<Vec<reply::Success>>,
     },
     GetTree {
         resp: Responder<Node>,
@@ -131,7 +131,6 @@ fn update_workspace_names2(tx: &mpsc::Sender<Command>) -> JoinHandle<Result<()>>
                 let _ = resp_rx.await;
             })
             .await?;
-            // tx2.send(Command::SendMsgBody { payload: command }).await?;
         }
         return Ok(());
     });
@@ -149,8 +148,6 @@ async fn main() -> Result<()> {
                 .await?;
             i3.listen()
         };
-
-        // let i3 = &mut I3::connect().await?;
 
         while let Some(event) = event_listener.next().await {
             match event? {
@@ -195,15 +192,12 @@ async fn main() -> Result<()> {
             match cmd {
                 Command::RunCommand { payload, resp } => {
                     log::debug!("RunCommand {}", payload);
-                    // XXX do something with result body
-                    let _ = i3.run_command(payload).await;
-                    let _ = resp.send(Ok(()));
+                    let res = i3.run_command(payload).await;
+                    let _ = resp.send(res);
                 }
                 Command::GetTree { resp } => {
-                    log::debug!("GetTree");
-                    let node = i3.get_tree().await;
-                    log::debug!("GetTree completed");
-                    let _ = resp.send(node);
+                    let res = i3.get_tree().await;
+                    let _ = resp.send(res);
                 }
             }
         }
