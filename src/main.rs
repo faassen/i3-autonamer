@@ -104,21 +104,22 @@ fn update_workspace_names(tx: &mpsc::Sender<Command>) -> JoinHandle<Result<()>> 
         let commands = get_workspace_rename_commands(&tree?).await?;
         for command in commands {
             // log::debug!("Command: {}", command);
-            let tx3 = tx2.clone();
-            tokio::spawn(async move {
-                let (resp_tx, resp_rx) = oneshot::channel();
-                let cmd = Command::RunCommand {
-                    payload: command,
-                    resp: resp_tx,
-                };
-                if tx3.send(cmd).await.is_err() {
-                    log::debug!("Error when moving");
-                    return;
-                };
-                let _ = resp_rx.await;
-            })
-            .await?;
+            spawn_command(&tx2, command).await??;
         }
+        return Ok(());
+    });
+}
+
+fn spawn_command(tx: &mpsc::Sender<Command>, payload: String) -> JoinHandle<Result<()>> {
+    let tx2 = tx.clone();
+    return tokio::spawn(async move {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        let cmd = Command::RunCommand {
+            payload: payload,
+            resp: resp_tx,
+        };
+        tx2.send(cmd).await?;
+        let _ = resp_rx.await;
         return Ok(());
     });
 }
@@ -146,7 +147,7 @@ async fn main() -> Result<()> {
                         | WindowChange::Floating => {
                             log::debug!("WindowChange");
                             // new, close, move, floating (?)
-                            update_workspace_names(&tx).await;
+                            update_workspace_names(&tx).await??;
                         }
                         _ => {}
                     }
@@ -161,7 +162,7 @@ async fn main() -> Result<()> {
                     match workspace_data.change {
                         WorkspaceChange::Init | WorkspaceChange::Empty | WorkspaceChange::Move => {
                             log::debug!("WorkspaceChange");
-                            update_workspace_names(&tx).await;
+                            update_workspace_names(&tx).await??;
                         }
                         _ => {}
                     }
