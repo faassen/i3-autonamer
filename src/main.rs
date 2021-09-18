@@ -50,14 +50,13 @@ fn get_workspace_nodes(root: &Node) -> impl Iterator<Item = &Node> {
         .flatten()
 }
 
-async fn get_workspace_rename_commands(i3: &mut I3) -> Result<Vec<String>> {
+async fn get_workspace_rename_commands(tree: &Node) -> Result<Vec<String>> {
     let mut lookup: Lookup = HashMap::new();
     lookup.insert("Alacritty".to_string(), 'A'.to_string());
     lookup.insert("Joplin".to_string(), 'J'.to_string());
     lookup.insert("Firefox".to_string(), 'F'.to_string());
     lookup.insert("Code".to_string(), 'C'.to_string());
-    let root = i3.get_tree().await?;
-    let workspace_nodes = get_workspace_nodes(&root);
+    let workspace_nodes = get_workspace_nodes(&tree);
     // log::debug!("root: {:#?}", root);
     Ok(workspace_nodes
         .filter_map(|workspace_node| {
@@ -82,7 +81,8 @@ async fn get_workspace_rename_commands(i3: &mut I3) -> Result<Vec<String>> {
 }
 
 async fn update_workspace_names(i3: &mut I3, tx: &mpsc::Sender<String>) -> Result<()> {
-    let commands = get_workspace_rename_commands(i3).await?;
+    let tree = i3.get_tree().await?;
+    let commands = get_workspace_rename_commands(&tree).await?;
     for command in commands {
         log::debug!("Command: {}", command);
         tx.send(command).await?;
