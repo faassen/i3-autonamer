@@ -1,7 +1,8 @@
 use anyhow::{Error, Result};
 use std;
 use std::collections::{HashMap, HashSet};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
 use tokio_i3ipc::{
     event::{Event, Subscribe, WindowChange, WorkspaceChange},
     msg::Msg,
@@ -80,19 +81,60 @@ async fn get_workspace_rename_commands(tree: &Node) -> Result<Vec<String>> {
         .collect())
 }
 
+type Responder<T> = oneshot::Sender<anyhow::Result<T, std::io::Error>>;
+
 #[derive(Debug)]
 enum Command {
-    SendMsgBody { payload: String },
+    RunCommand {
+        payload: String,
+        resp: Responder<()>,
+    },
+    GetTree {
+        resp: Responder<Node>,
+    },
 }
 
-async fn update_workspace_names(i3: &mut I3, tx: &mpsc::Sender<Command>) -> Result<()> {
-    let tree = i3.get_tree().await?;
-    let commands = get_workspace_rename_commands(&tree).await?;
-    for command in commands {
-        log::debug!("Command: {}", command);
-        tx.send(Command::SendMsgBody { payload: command }).await?;
-    }
-    return Ok(());
+// async fn update_workspace_names(i3: &mut I3, tx: &mpsc::Sender<Command>) -> Result<()> {
+//     let tree = i3.get_tree().await?;
+//     let commands = get_workspace_rename_commands(&tree).await?;
+//     for command in commands {
+//         log::debug!("Command: {}", command);
+//         tx.send(Command::SendMsgBody { payload: command }).await?;
+//     }
+//     return Ok(());
+// }
+
+fn update_workspace_names2(tx: &mpsc::Sender<Command>) -> JoinHandle<Result<()>> {
+    let tx2 = tx.clone();
+    return tokio::spawn(async move {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        let cmd = Command::GetTree { resp: resp_tx };
+        tx2.send(cmd).await?;
+        log::debug!("Waiting for tree");
+        let tree = resp_rx.await?;
+        log::debug!("We got tree!");
+        log::debug!("{:?}", tree);
+        let commands = get_workspace_rename_commands(&tree?).await?;
+        for command in commands {
+            // log::debug!("Command: {}", command);
+            let tx3 = tx2.clone();
+            tokio::spawn(async move {
+                let (resp_tx, resp_rx) = oneshot::channel();
+                let cmd = Command::RunCommand {
+                    payload: command,
+                    resp: resp_tx,
+                };
+                if tx3.send(cmd).await.is_err() {
+                    log::debug!("Error when moving");
+                    return;
+                };
+                let _ = resp_rx.await;
+            })
+            .await?;
+            // tx2.send(Command::SendMsgBody { payload: command }).await?;
+        }
+        return Ok(());
+    });
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -108,7 +150,7 @@ async fn main() -> Result<()> {
             i3.listen()
         };
 
-        let i3 = &mut I3::connect().await?;
+        // let i3 = &mut I3::connect().await?;
 
         while let Some(event) = event_listener.next().await {
             match event? {
@@ -120,7 +162,7 @@ async fn main() -> Result<()> {
                         | WindowChange::Floating => {
                             log::debug!("WindowChange");
                             // new, close, move, floating (?)
-                            update_workspace_names(i3, &tx).await?;
+                            update_workspace_names2(&tx).await;
                         }
                         _ => {}
                     }
@@ -135,7 +177,7 @@ async fn main() -> Result<()> {
                     match workspace_data.change {
                         WorkspaceChange::Init | WorkspaceChange::Empty | WorkspaceChange::Move => {
                             log::debug!("WorkspaceChange");
-                            update_workspace_names(i3, &tx).await?;
+                            update_workspace_names2(&tx).await;
                         }
                         _ => {}
                     }
@@ -151,8 +193,17 @@ async fn main() -> Result<()> {
         let mut i3 = I3::connect().await?;
         while let Some(cmd) = rx.recv().await {
             match cmd {
-                Command::SendMsgBody { payload } => {
-                    i3.send_msg_body(Msg::RunCommand, payload).await?;
+                Command::RunCommand { payload, resp } => {
+                    log::debug!("RunCommand {}", payload);
+                    // XXX do something with result body
+                    let _ = i3.run_command(payload).await;
+                    let _ = resp.send(Ok(()));
+                }
+                Command::GetTree { resp } => {
+                    log::debug!("GetTree");
+                    let node = i3.get_tree().await;
+                    log::debug!("GetTree completed");
+                    let _ = resp.send(node);
                 }
             }
         }
