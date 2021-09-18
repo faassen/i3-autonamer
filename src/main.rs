@@ -94,17 +94,7 @@ enum Command {
     },
 }
 
-// async fn update_workspace_names(i3: &mut I3, tx: &mpsc::Sender<Command>) -> Result<()> {
-//     let tree = i3.get_tree().await?;
-//     let commands = get_workspace_rename_commands(&tree).await?;
-//     for command in commands {
-//         log::debug!("Command: {}", command);
-//         tx.send(Command::SendMsgBody { payload: command }).await?;
-//     }
-//     return Ok(());
-// }
-
-fn update_workspace_names2(tx: &mpsc::Sender<Command>) -> JoinHandle<Result<()>> {
+fn update_workspace_names(tx: &mpsc::Sender<Command>) -> JoinHandle<Result<()>> {
     let tx2 = tx.clone();
     return tokio::spawn(async move {
         let (resp_tx, resp_rx) = oneshot::channel();
@@ -159,7 +149,7 @@ async fn main() -> Result<()> {
                         | WindowChange::Floating => {
                             log::debug!("WindowChange");
                             // new, close, move, floating (?)
-                            update_workspace_names2(&tx).await;
+                            update_workspace_names(&tx).await;
                         }
                         _ => {}
                     }
@@ -174,7 +164,7 @@ async fn main() -> Result<()> {
                     match workspace_data.change {
                         WorkspaceChange::Init | WorkspaceChange::Empty | WorkspaceChange::Move => {
                             log::debug!("WorkspaceChange");
-                            update_workspace_names2(&tx).await;
+                            update_workspace_names(&tx).await;
                         }
                         _ => {}
                     }
