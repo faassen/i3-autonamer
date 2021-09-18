@@ -62,11 +62,6 @@ struct Config {
 }
 
 async fn get_workspace_rename_commands(tree: &Node, lookup: Lookup) -> Result<Vec<String>> {
-    // let mut lookup: Lookup = HashMap::new();
-    // lookup.insert("Alacritty".to_string(), 'A'.to_string());
-    // lookup.insert("Joplin".to_string(), 'J'.to_string());
-    // lookup.insert("Firefox".to_string(), 'F'.to_string());
-    // lookup.insert("Code".to_string(), 'C'.to_string());
     let workspace_nodes = get_workspace_nodes(&tree);
     Ok(workspace_nodes
         .filter_map(|workspace_node| {
@@ -76,7 +71,7 @@ async fn get_workspace_rename_commands(tree: &Node, lookup: Lookup) -> Result<Ve
             }
             let name = get_workspace_name(workspace_node, &lookup);
             let full_name = if name.len() > 0 {
-                format!("{}: {}", num, name)
+                format!("{} {}", num, name)
             } else {
                 format!("{}", num)
             };
