@@ -58,7 +58,6 @@ async fn get_workspace_rename_commands(tree: &Node) -> Result<Vec<String>> {
     lookup.insert("Firefox".to_string(), 'F'.to_string());
     lookup.insert("Code".to_string(), 'C'.to_string());
     let workspace_nodes = get_workspace_nodes(&tree);
-    // log::debug!("root: {:#?}", root);
     Ok(workspace_nodes
         .filter_map(|workspace_node| {
             let num = workspace_node.num?;
@@ -94,7 +93,7 @@ enum Command {
     },
 }
 
-fn update_workspace_names(tx: &mpsc::Sender<Command>) -> JoinHandle<Result<()>> {
+fn spawn_update_workspace_names(tx: &mpsc::Sender<Command>) -> JoinHandle<Result<()>> {
     let tx2 = tx.clone();
     return tokio::spawn(async move {
         let (resp_tx, resp_rx) = oneshot::channel();
@@ -147,7 +146,7 @@ async fn main() -> Result<()> {
                         | WindowChange::Floating => {
                             log::debug!("WindowChange");
                             // new, close, move, floating (?)
-                            update_workspace_names(&tx).await??;
+                            spawn_update_workspace_names(&tx).await??;
                         }
                         _ => {}
                     }
@@ -162,7 +161,7 @@ async fn main() -> Result<()> {
                     match workspace_data.change {
                         WorkspaceChange::Init | WorkspaceChange::Empty | WorkspaceChange::Move => {
                             log::debug!("WorkspaceChange");
-                            update_workspace_names(&tx).await??;
+                            spawn_update_workspace_names(&tx).await??;
                         }
                         _ => {}
                     }
@@ -179,7 +178,6 @@ async fn main() -> Result<()> {
         while let Some(cmd) = rx.recv().await {
             match cmd {
                 Command::RunCommand { payload, resp } => {
-                    log::debug!("RunCommand {}", payload);
                     let res = i3.run_command(payload).await;
                     let _ = resp.send(res);
                 }
