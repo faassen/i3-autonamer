@@ -100,10 +100,7 @@ fn update_workspace_names(tx: &mpsc::Sender<Command>) -> JoinHandle<Result<()>> 
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::GetTree { resp: resp_tx };
         tx2.send(cmd).await?;
-        log::debug!("Waiting for tree");
         let tree = resp_rx.await?;
-        log::debug!("We got tree!");
-        log::debug!("{:?}", tree);
         let commands = get_workspace_rename_commands(&tree?).await?;
         for command in commands {
             // log::debug!("Command: {}", command);
