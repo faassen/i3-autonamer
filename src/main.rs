@@ -1,8 +1,8 @@
 use anyhow::{Error, Result};
-use serde_derive::Deserialize;
+use confy;
+use serde_derive::{Deserialize, Serialize};
 use std;
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -13,7 +13,6 @@ use tokio_i3ipc::{
     I3,
 };
 use tokio_stream::StreamExt;
-use toml;
 
 type Lookup = Arc<Mutex<HashMap<String, String>>>;
 
@@ -56,7 +55,7 @@ fn get_workspace_nodes(root: &Node) -> impl Iterator<Item = &Node> {
         .flatten()
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Default, Serialize, Deserialize, Debug)]
 struct Config {
     window_class: HashMap<String, String>,
 }
@@ -136,7 +135,8 @@ async fn main() -> Result<()> {
     flexi_logger::Logger::try_with_env()?.start()?;
     let (tx, mut rx) = mpsc::channel::<Command>(10);
 
-    let config: Config = toml::from_str(&fs::read_to_string("config-example.toml".to_string())?)?;
+    let config: Config = confy::load("i3-autonamer")?;
+    log::debug!("{:?}", config);
     let lookup = Arc::new(Mutex::new(config.window_class));
 
     let s_handle = tokio::spawn(async move {
