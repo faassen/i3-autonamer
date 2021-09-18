@@ -1,6 +1,9 @@
 use anyhow::{Error, Result};
+use serde_derive::Deserialize;
 use std;
 use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_i3ipc::{
@@ -10,8 +13,9 @@ use tokio_i3ipc::{
     I3,
 };
 use tokio_stream::StreamExt;
+use toml;
 
-type Lookup = HashMap<String, String>;
+type Lookup = Arc<Mutex<HashMap<String, String>>>;
 
 fn get_leaf_content_nodes(node: &Node) -> Vec<&Node> {
     get_nodes_of_type(node, NodeType::Con)
@@ -26,6 +30,7 @@ fn get_leaf_content_nodes(node: &Node) -> Vec<&Node> {
 }
 
 fn get_workspace_name(workspace_node: &Node, lookup: &Lookup) -> String {
+    let lookup = lookup.lock().unwrap();
     let names = get_leaf_content_nodes(workspace_node)
         .iter()
         .filter_map(|n| {
@@ -51,12 +56,17 @@ fn get_workspace_nodes(root: &Node) -> impl Iterator<Item = &Node> {
         .flatten()
 }
 
-async fn get_workspace_rename_commands(tree: &Node) -> Result<Vec<String>> {
-    let mut lookup: Lookup = HashMap::new();
-    lookup.insert("Alacritty".to_string(), 'A'.to_string());
-    lookup.insert("Joplin".to_string(), 'J'.to_string());
-    lookup.insert("Firefox".to_string(), 'F'.to_string());
-    lookup.insert("Code".to_string(), 'C'.to_string());
+#[derive(Deserialize, Debug)]
+struct Config {
+    window_class: HashMap<String, String>,
+}
+
+async fn get_workspace_rename_commands(tree: &Node, lookup: Lookup) -> Result<Vec<String>> {
+    // let mut lookup: Lookup = HashMap::new();
+    // lookup.insert("Alacritty".to_string(), 'A'.to_string());
+    // lookup.insert("Joplin".to_string(), 'J'.to_string());
+    // lookup.insert("Firefox".to_string(), 'F'.to_string());
+    // lookup.insert("Code".to_string(), 'C'.to_string());
     let workspace_nodes = get_workspace_nodes(&tree);
     Ok(workspace_nodes
         .filter_map(|workspace_node| {
@@ -93,14 +103,17 @@ enum Command {
     },
 }
 
-fn spawn_update_workspace_names(tx: &mpsc::Sender<Command>) -> JoinHandle<Result<()>> {
+fn spawn_update_workspace_names(
+    tx: &mpsc::Sender<Command>,
+    lookup: Lookup,
+) -> JoinHandle<Result<()>> {
     let tx2 = tx.clone();
     return tokio::spawn(async move {
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::GetTree { resp: resp_tx };
         tx2.send(cmd).await?;
         let tree = resp_rx.await?;
-        let commands = get_workspace_rename_commands(&tree?).await?;
+        let commands = get_workspace_rename_commands(&tree?, lookup).await?;
         for command in commands {
             // log::debug!("Command: {}", command);
             spawn_command(&tx2, command).await??;
@@ -128,6 +141,9 @@ async fn main() -> Result<()> {
     flexi_logger::Logger::try_with_env()?.start()?;
     let (tx, mut rx) = mpsc::channel::<Command>(10);
 
+    let config: Config = toml::from_str(&fs::read_to_string("config-example.toml".to_string())?)?;
+    let lookup = Arc::new(Mutex::new(config.window_class));
+
     let s_handle = tokio::spawn(async move {
         let mut event_listener = {
             let mut i3 = I3::connect().await?;
@@ -137,6 +153,7 @@ async fn main() -> Result<()> {
         };
 
         while let Some(event) = event_listener.next().await {
+            let lookup = lookup.clone();
             match event? {
                 Event::Window(window_data) => {
                     match window_data.change {
@@ -146,7 +163,7 @@ async fn main() -> Result<()> {
                         | WindowChange::Floating => {
                             log::debug!("WindowChange");
                             // new, close, move, floating (?)
-                            spawn_update_workspace_names(&tx).await??;
+                            spawn_update_workspace_names(&tx, lookup).await??;
                         }
                         _ => {}
                     }
@@ -161,7 +178,7 @@ async fn main() -> Result<()> {
                     match workspace_data.change {
                         WorkspaceChange::Init | WorkspaceChange::Empty | WorkspaceChange::Move => {
                             log::debug!("WorkspaceChange");
-                            spawn_update_workspace_names(&tx).await??;
+                            spawn_update_workspace_names(&tx, lookup).await??;
                         }
                         _ => {}
                     }

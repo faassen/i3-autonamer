@@ -12,6 +12,9 @@ anyhow = "1.0.44"
 log = "0.4.14"
 flexi_logger = { version = "0.19.3", default-features = false }
 tokio-stream = "0.1.7"
+toml = "0.5.8"
+serde = "1.0.13"
+serde_derive = "1.0.130"
 
 [profile.release]
 lto = true
