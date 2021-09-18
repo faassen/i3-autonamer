@@ -80,12 +80,17 @@ async fn get_workspace_rename_commands(tree: &Node) -> Result<Vec<String>> {
         .collect())
 }
 
-async fn update_workspace_names(i3: &mut I3, tx: &mpsc::Sender<String>) -> Result<()> {
+#[derive(Debug)]
+enum Command {
+    SendMsgBody { payload: String },
+}
+
+async fn update_workspace_names(i3: &mut I3, tx: &mpsc::Sender<Command>) -> Result<()> {
     let tree = i3.get_tree().await?;
     let commands = get_workspace_rename_commands(&tree).await?;
     for command in commands {
         log::debug!("Command: {}", command);
-        tx.send(command).await?;
+        tx.send(Command::SendMsgBody { payload: command }).await?;
     }
     return Ok(());
 }
@@ -93,7 +98,7 @@ async fn update_workspace_names(i3: &mut I3, tx: &mpsc::Sender<String>) -> Resul
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     flexi_logger::Logger::try_with_env()?.start()?;
-    let (tx, mut rx) = mpsc::channel(10);
+    let (tx, mut rx) = mpsc::channel::<Command>(10);
 
     let s_handle = tokio::spawn(async move {
         let mut event_listener = {
@@ -145,7 +150,11 @@ async fn main() -> Result<()> {
     let r_handle = tokio::spawn(async move {
         let mut i3 = I3::connect().await?;
         while let Some(cmd) = rx.recv().await {
-            i3.send_msg_body(Msg::RunCommand, cmd).await?;
+            match cmd {
+                Command::SendMsgBody { payload } => {
+                    i3.send_msg_body(Msg::RunCommand, payload).await?;
+                }
+            }
         }
         log::debug!("Receiver loop ended");
         Ok::<_, Error>(())
